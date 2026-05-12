@@ -1,0 +1,260 @@
+/* SORA-HUB 主样式表 */
+
+/* GTA 字体 */
+@font-face {
+    font-family: 'Pricedown';
+    src: url('./fonts/Pricedown Bl.otf') format('opentype');
+    font-display: swap;
+}
+
+body {
+    font-family: 'Montserrat', 'Noto Sans SC', sans-serif;
+    background-color: #0a0a0c;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+    background-size: 24px 24px;
+    color: #ffffff;
+    overflow-x: hidden;
+}
+
+.font-pricedown { 
+    font-family: 'Pricedown', Impact, sans-serif; 
+}
+
+.neon-text {
+    text-shadow: 0 0 10px rgba(255, 42, 109, 0.7), 0 0 20px rgba(255, 42, 109, 0.5);
+}
+
+/* 穹妹元素的黑白加载圈 */
+#loader {
+    position: fixed; 
+    top: 0; 
+    left: 0; 
+    width: 100vw; 
+    height: 100vh;
+    background: #000; 
+    z-index: 9999;
+    display: flex; 
+    justify-content: flex-end; 
+    align-items: flex-end; 
+    padding: 40px;
+    transition: opacity 0.5s ease-out;
+}
+
+.sora-spinner { 
+    width: 50px; 
+    height: 50px; 
+    position: relative;
+    will-change: transform;
+}
+
+.sora-spinner::before, 
+.sora-spinner::after {
+    content: ''; 
+    position: absolute; 
+    top: 0; 
+    left: 0; 
+    width: 100%; 
+    height: 100%; 
+    border-radius: 50%;
+}
+
+.sora-spinner::before {
+    border: 3px solid transparent; 
+    border-top-color: #ffffff; 
+    border-bottom-color: #ffffff;
+    animation: spin 1s cubic-bezier(0.68, -0.55, 0.265, 1.55) infinite;
+}
+
+.sora-spinner::after {
+    border: 3px dashed transparent; 
+    border-left-color: #FF2A6D; 
+    border-right-color: #F2A900;
+    animation: spin 2s linear infinite reverse;
+}
+
+@keyframes spin { 
+    100% { transform: rotate(360deg); } 
+}
+
+/* 卡片悬停：GTA黄与二次元粉的渐变 */
+.card {
+    min-height: 263px;
+    min-width: 290px;
+    display: flex;
+    flex-direction: column;
+    contain: layout style;
+    will-change: transform, border-color, box-shadow;
+}
+
+.card:hover {
+    border-color: #FF2A6D;
+    box-shadow: 0 0 25px rgba(255, 42, 109, 0.2), inset 0 0 10px rgba(242, 169, 0, 0.1);
+    transform: translateY(-5px);
+}
+
+.card:hover .glitch-text {
+    color: #F2A900;
+    animation: glitch-skew 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) both infinite;
+}
+
+@keyframes glitch-skew {
+    0% { transform: skew(0deg); }
+    20% { transform: skew(-10deg); }
+    40% { transform: skew(10deg); text-shadow: 2px 2px #FF2A6D; }
+    60% { transform: skew(-5deg); }
+    80% { transform: skew(5deg); text-shadow: -2px -2px #00E5FF; }
+    100% { transform: skew(0deg); }
+}
+
+.avatar-container {
+    animation: float 6s ease-in-out infinite;
+    filter: drop-shadow(0 0 30px rgba(255, 42, 109, 0.3));
+    will-change: transform;
+    contain: layout style;
+}
+
+@keyframes float {
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-15px); }
+    100% { transform: translateY(0px); }
+}
+
+.usagi-pulse {
+    animation: usagi-pulse-anim 2s infinite;
+    will-change: text-shadow;
+}
+
+@keyframes usagi-pulse-anim {
+    0% { text-shadow: 0 0 5px #FF2A6D; }
+    50% { text-shadow: 0 0 20px #FF2A6D, 0 0 30px #FF2A6D; }
+    100% { text-shadow: 0 0 5px #FF2A6D; }
+}
+
+.download-sources {
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    will-change: opacity, transform;
+}
+
+/* 桌面端：悬停时显示 */
+@media (hover: hover) and (pointer: fine) {
+    .card:hover .download-sources {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 移动端/触摸设备：始终显示 */
+@media (hover: none), (pointer: coarse) {
+    .download-sources {
+        opacity: 1 !important;
+        transform: translateY(0) !important;
+    }
+}
+
+.download-btn {
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid transparent;
+}
+
+.download-btn-primary {
+    background: linear-gradient(135deg, #F2A900, #FF2A6D);
+    color: #000;
+}
+
+.download-btn-primary:hover {
+    box-shadow: 0 0 15px rgba(242, 169, 0, 0.5);
+    transform: scale(1.05);
+}
+
+.download-btn-secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.download-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: #FF2A6D;
+    box-shadow: 0 0 10px rgba(255, 42, 109, 0.3);
+}
+
+.version-display {
+    line-height: 1.5;
+    color: #9ca3af;
+    font-size: 11px;
+}
+
+/* ==================== Hero 轮播图 ==================== */
+.hero-carousel {
+    position: relative;
+    overflow: hidden;
+}
+
+.carousel-slide {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: auto;
+    opacity: 0;
+    z-index: 0;
+    transform: scale(1.03);
+    filter: blur(6px);
+    transition: opacity 1.4s cubic-bezier(0.4, 0, 0.2, 1),
+                transform 1.4s cubic-bezier(0.4, 0, 0.2, 1),
+                filter 1.4s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+}
+
+.carousel-slide.active {
+    opacity: 1;
+    position: relative;
+    z-index: 1;
+    transform: scale(1);
+    filter: blur(0px);
+    pointer-events: auto;
+}
+
+.carousel-slide.exiting {
+    opacity: 0;
+    transform: scale(1.03);
+    filter: blur(6px);
+}
+
+/* 轮播指示点 */
+.carousel-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    padding: 0;
+}
+
+.carousel-dot:hover {
+    background: rgba(255, 255, 255, 0.5);
+    transform: scale(1.3);
+}
+
+.carousel-dot.active {
+    background: linear-gradient(135deg, #F2A900, #FF2A6D);
+    border-color: #FF2A6D;
+    box-shadow: 0 0 8px rgba(255, 42, 109, 0.6);
+    transform: scale(1.2);
+}

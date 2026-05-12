@@ -1,0 +1,48 @@
+{
+  "lastUpdated": "2026-04-10",
+  "autoUpdateEnabled": true,
+  "updateInterval": 86400000,
+  "tools": {
+    "ScriptHookV": {
+      "version": "v3788.0 / 1013.34",
+      "displayVersion": "v3788.0",
+      "releaseDate": "2026-04-10",
+      "downloads": {
+        "official": "http://www.dev-c.com/files/ScriptHookV_3788.0_1013.34.zip",
+        "sdk": "http://www.dev-c.com/files/ScriptHookV_SDK_1.0.617.1a.zip",
+        "gitee": "https://gitee.com/mirrors/scripthookv/releases"
+      },
+      "supportedPatches": ["1.0.3788.0", "1.0.1013.34"],
+      "autoDetect": {
+        "enabled": true,
+        "officialPage": "http://www.dev-c.com/gtav/scripthookv/",
+        "downloadTemplate": "http://www.dev-c.com/files/ScriptHookV_{version}_{patch}.zip",
+        "versionPattern": "v{version} / {patch}"
+      }
+    },
+    "ScriptHookVDotNet": {
+      "version": "待更新",
+      "displayVersion": "待更新",
+      "downloads": {
+        "github": "https://github.com/crosire/scripthookvdotnet/releases",
+        "gitee": ""
+      },
+      "autoDetect": {
+        "enabled": false,
+        "reason": "GitHub releases 需要 API 调用"
+      }
+    },
+    "OpenIV": {
+      "version": "待更新",
+      "displayVersion": "待更新",
+      "downloads": {
+        "official": "https://openiv.com/",
+        "gitee": ""
+      },
+      "autoDetect": {
+        "enabled": false,
+        "reason": "官网结构复杂，建议手动更新"
+      }
+    }
+  }
+}
