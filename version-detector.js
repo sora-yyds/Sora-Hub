@@ -74,10 +74,33 @@ const TOOL_CONFIGS = {
 };
 
 /**
- * 通过 CORS 代理获取网页内容
+ * 三层获取策略：直连 → CORS 代理 → 抛出异常
+ * @param {string} url - 目标 URL
+ * @param {object} options - fetch 选项
+ * @returns {Promise<string>} 响应文本
  */
-async function fetchWithProxy(url) {
-    // CORS 代理服务列表（按优先级）
+async function fetchWithStrategy(url, options = {}) {
+    const defaultHeaders = {
+        'Accept': 'text/html,application/xhtml+xml,application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    };
+    const mergedHeaders = { ...defaultHeaders, ...options.headers };
+
+    // 第一层：直连目标网站（CORS 兼容站点如 GitHub API 可以成功）
+    try {
+        log(`[SORA-HUB] 🔄 直连: ${url}`);
+        const response = await fetch(url, { method: 'GET', headers: mergedHeaders, signal: AbortSignal.timeout(3000) });
+        if (response.ok) {
+            const text = await response.text();
+            log('[SORA-HUB] ✅ 直连成功');
+            return text;
+        }
+        warn(`[SORA-HUB] ⚠️ 直连返回 ${response.status}，尝试代理`);
+    } catch (e) {
+        warn(`[SORA-HUB] ⚠️ 直连失败: ${e.message}，尝试代理`);
+    }
+
+    // 第二层：CORS 代理（每次请求独立计时）
     const proxies = [
         `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
         `https://corsproxy.io/?${encodeURIComponent(url)}`,
@@ -86,29 +109,19 @@ async function fetchWithProxy(url) {
 
     for (const proxyUrl of proxies) {
         try {
-            log(`[SORA-HUB] 🔄 尝试代理: ${proxyUrl.split('?')[0]}`);
-            
-            const response = await fetch(proxyUrl, {
-                method: 'GET',
-                headers: {
-                    'Accept': 'text/html,application/xhtml+xml',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                },
-                signal: AbortSignal.timeout(3000)
-            });
-
+            log(`[SORA-HUB] 🔄 代理: ${proxyUrl.split('?')[0]}`);
+            const response = await fetch(proxyUrl, { method: 'GET', headers: mergedHeaders, signal: AbortSignal.timeout(3000) });
             if (response.ok) {
                 const text = await response.text();
                 log('[SORA-HUB] ✅ 代理请求成功');
                 return text;
             }
-        } catch (error) {
-            warn(`[SORA-HUB] ⚠️ 代理失败:`, error.message);
-            continue;
+        } catch (e) {
+            warn(`[SORA-HUB] ⚠️ 代理失败:`, e.message);
         }
     }
 
-    throw new Error('所有代理均失败');
+    throw new Error('直连与所有代理均失败');
 }
 
 /**
@@ -118,7 +131,7 @@ async function fetchScriptHookVVersion() {
     try {
         log('[SORA-HUB] 📡 正在获取 ScriptHookV 最新版本...');
         
-        const html = await fetchWithProxy(SCRIPT_HOOK_V_CONFIG.officialPage);
+        const html = await fetchWithStrategy(SCRIPT_HOOK_V_CONFIG.officialPage);
         const match = html.match(SCRIPT_HOOK_V_CONFIG.versionPattern);
         
         if (match) {
@@ -139,8 +152,8 @@ async function fetchScriptHookVVersion() {
         } else {
             throw new Error('无法解析版本号');
         }
-    } catch (error) {
-        error('[SORA-HUB] ❌ 在线获取版本失败:', error.message);
+    } catch (e) {
+        warn('[SORA-HUB] ❌ 在线获取版本失败:', e.message);
         log('[SORA-HUB] 💡 使用默认版本作为降级方案');
         
         return {
@@ -220,19 +233,10 @@ async function fetchScriptHookVDotNetVersion() {
     try {
         log('[SORA-HUB] 📡 正在从 GitHub 获取 ScriptHookVDotNet 最新版本...');
         
-        const response = await fetch(SCRIPT_HOOK_V_DOTNET_CONFIG.githubApi, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/vnd.github.v3+json'
-            },
-            signal: AbortSignal.timeout(3000)
+        const text = await fetchWithStrategy(SCRIPT_HOOK_V_DOTNET_CONFIG.githubApi, {
+            headers: { 'Accept': 'application/vnd.github.v3+json' }
         });
-
-        if (!response.ok) {
-            throw new Error(`GitHub API 请求失败: ${response.status}`);
-        }
-
-        const data = await response.json();
+        const data = JSON.parse(text);
         
         // 提取版本号和下载链接
         const version = data.tag_name || data.name;
@@ -251,8 +255,8 @@ async function fetchScriptHookVDotNetVersion() {
             releaseNotes: data.body ? data.body.substring(0, 100) + '...' : '',
             source: 'online'
         };
-    } catch (error) {
-        error('[SORA-HUB] ❌ 获取 ScriptHookVDotNet 版本失败:', error.message);
+    } catch (e) {
+        warn('[SORA-HUB] ❌ 获取 ScriptHookVDotNet 版本失败:', e.message);
         log('[SORA-HUB] 💡 使用默认版本作为降级方案');
         
         return {
@@ -346,16 +350,16 @@ async function fetchRockstarServiceStatus() {
     try {
         log('[SORA-HUB] 📡 正在通过网页抓取获取 Rockstar 服务状态...');
         
-        // 通过 CORS 代理获取官方页面
-        const html = await fetchWithProxy(ROCKSTAR_SERVICE_STATUS_CONFIG.statusPage);
+        // 获取官方页面
+        const html = await fetchWithStrategy(ROCKSTAR_SERVICE_STATUS_CONFIG.statusPage);
         
         // 解析服务状态
         const services = parseRockstarStatusPage(html);
         
         log('[SORA-HUB] ✅ 成功获取服务状态:', services);
         return services;
-    } catch (error) {
-        error('[SORA-HUB] ❌ 获取 Rockstar 服务状态失败:', error.message);
+    } catch (e) {
+        warn('[SORA-HUB] ❌ 获取 Rockstar 服务状态失败:', e.message);
         log('[SORA-HUB] 💡 使用默认状态作为降级方案');
         
         // 返回默认状态（未知/检查中）
