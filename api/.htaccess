@@ -1,0 +1,8 @@
+# 禁止浏览器直接访问配置文件
+<Files "config.php">
+    Order Allow,Deny
+    Deny from all
+</Files>
+
+# 禁止目录浏览
+Options -Indexes

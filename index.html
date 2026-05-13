@@ -138,7 +138,7 @@
     </header>
 
     <!-- 核心工具区 -->
-    <main class="max-w-7xl mx-auto px-6 pb-20 relative z-10">
+    <main class="max-w-7xl mx-auto px-6 pb-8 relative z-10">
         
         <!-- Essential Scripts 区块 -->
         <div class="mb-16">
@@ -617,6 +617,48 @@
 
     </main>
 
+    <!-- 弹幕墙 -->
+    <section class="barrage-section relative bg-[#0a0a0c]">
+        <div class="max-w-7xl mx-auto px-6 pt-4 pb-8 relative z-10">
+            <div class="flex items-center space-x-3 mb-6">
+                <i class="fa-solid fa-comments text-[#FF2A6D] text-xl"></i>
+                <h2 class="font-pricedown text-3xl tracking-widest text-white uppercase">弹幕墙</h2>
+                <div class="h-[1px] flex-grow bg-gradient-to-r from-gray-700 to-transparent ml-4"></div>
+            </div>
+
+            <!-- 弹幕展示区 -->
+            <div class="barrage-arena" id="barrageArena"></div>
+
+            <!-- 发送区 -->
+            <div class="flex items-center gap-3 max-w-xl mx-auto">
+                <div class="relative flex-grow">
+                    <input type="text" id="barrageInput" maxlength="50" placeholder="发送一条弹幕..."
+                           class="w-full bg-[#0f0f12] border border-gray-700 rounded-lg px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-[#FF2A6D] focus:shadow-[0_0_12px_rgba(255,42,109,0.2)] transition-all">
+                </div>
+                <div class="relative" id="colorPickerWrap">
+                    <button id="colorPickerBtn" class="w-10 h-10 rounded-lg border border-gray-700 flex items-center justify-center transition-all hover:border-[#FF2A6D]" title="选择弹幕颜色">
+                        <div id="currentColorDot" class="w-5 h-5 rounded-full" style="background:#FF2A6D"></div>
+                    </button>
+                    <div id="colorPalette" class="hidden absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-[#0f0f12] border border-gray-700 rounded-lg p-2 flex gap-2 shadow-xl z-20">
+                        <button class="color-option w-6 h-6 rounded-full border-2 border-transparent hover:border-white transition-all" data-color="#FF2A6D" style="background:#FF2A6D"></button>
+                        <button class="color-option w-6 h-6 rounded-full border-2 border-transparent hover:border-white transition-all" data-color="#F2A900" style="background:#F2A900"></button>
+                        <button class="color-option w-6 h-6 rounded-full border-2 border-transparent hover:border-white transition-all" data-color="#00E5FF" style="background:#00E5FF"></button>
+                        <button class="color-option w-6 h-6 rounded-full border-2 border-transparent hover:border-white transition-all" data-color="#76FF03" style="background:#76FF03"></button>
+                        <button class="color-option w-6 h-6 rounded-full border-2 border-transparent hover:border-white transition-all" data-color="#E040FB" style="background:#E040FB"></button>
+                        <button class="color-option w-6 h-6 rounded-full border-2 border-transparent hover:border-white transition-all" data-color="#FFFFFF" style="background:#FFFFFF"></button>
+                    </div>
+                </div>
+                <button id="barrageSend" class="px-5 py-3 rounded-lg bg-gradient-to-r from-[#F2A900] to-[#FF2A6D] text-black font-bold text-sm hover:shadow-[0_0_20px_rgba(255,42,109,0.4)] hover:scale-105 active:scale-95 transition-all whitespace-nowrap">
+                    <i class="fa-solid fa-paper-plane mr-1"></i>发射
+                </button>
+            </div>
+            <p class="text-center text-gray-600 text-xs mt-3">
+                <i class="fa-solid fa-circle-info mr-1"></i>
+                弹幕内容不超过 50 字·点击右侧按钮选择颜色
+            </p>
+        </div>
+    </section>
+
     <!-- 页脚 -->
     <footer class="border-t border-gray-900 bg-black py-12 text-center">
         <div class="max-w-7xl mx-auto px-6">
@@ -754,6 +796,176 @@
             // 无论如何都启动轮播（不阻塞于图片加载）
             startAuto();
         });
+    </script>
+
+    <!-- 弹幕墙 -->
+    <script>
+        (() => {
+            const API_URL = './api/barrage.php';
+            const STORAGE_KEY = 'sora_barrages';
+            const MAX_BARRAGES = 500;
+            const MAX_VISIBLE = 30;
+
+            const arena = document.getElementById('barrageArena');
+            const input = document.getElementById('barrageInput');
+            const sendBtn = document.getElementById('barrageSend');
+            const colorBtn = document.getElementById('colorPickerBtn');
+            const colorDot = document.getElementById('currentColorDot');
+            const palette = document.getElementById('colorPalette');
+            let currentColor = '#FF2A6D';
+            let activeCount = 0;
+            let useAPI = false;
+
+            // 自动检测 API 是否可用
+            async function checkAPI() {
+                try {
+                    const r = await fetch(API_URL + '?max=1', { signal: AbortSignal.timeout(3000) });
+                    if (r.ok) { useAPI = true; log('[弹幕] API 模式'); return; }
+                } catch {}
+                log('[弹幕] localStorage 模式');
+            }
+
+            function log(...a) { console.log('[SORA-HUB Barrage]', ...a); }
+
+            // 统一读写接口
+            async function loadBarrages() {
+                if (useAPI) {
+                    try {
+                        const r = await fetch(API_URL + '?max=' + MAX_BARRAGES, { signal: AbortSignal.timeout(5000) });
+                        if (r.ok) return await r.json();
+                    } catch {}
+                }
+                try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+                catch { return []; }
+            }
+
+            async function saveBarrage(text, color) {
+                const record = { text, color, time: Date.now() };
+                if (useAPI) {
+                    try {
+                        const r = await fetch(API_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(record),
+                            signal: AbortSignal.timeout(5000)
+                        });
+                        if (r.ok) return true;
+                    } catch {}
+                }
+                // API 不可用时写入 localStorage
+                const list = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+                list.push(record);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(list.slice(-MAX_BARRAGES)));
+                return true;
+            }
+
+            // 发射一条弹幕
+            function fireBarrage(text, color, animate = true) {
+                if (activeCount >= MAX_VISIBLE) return;
+
+                const el = document.createElement('div');
+                el.className = 'barrage-item';
+                el.textContent = text;
+                el.style.color = color;
+
+                // 随机轨道（顶部偏移 0~160px，行高 ~28px）
+                const lanes = 6;
+                const lane = Math.floor(Math.random() * lanes);
+                el.style.top = (10 + lane * 28) + 'px';
+
+                // 随机时长 8~14 秒
+                const duration = 8 + Math.random() * 6;
+                el.style.animationDuration = duration + 's';
+
+                if (animate) {
+                    el.style.animationDelay = (Math.random() * 0.3) + 's';
+                } else {
+                    // 不带动画：直接从中间开始飘
+                    el.style.animationDelay = '0s';
+                }
+
+                arena.appendChild(el);
+                activeCount++;
+
+                el.addEventListener('animationend', () => {
+                    el.remove();
+                    activeCount--;
+                }, { once: true });
+
+                // 安全兜底：15 秒后强制移除
+                setTimeout(() => {
+                    if (el.parentNode) { el.remove(); activeCount--; }
+                }, 15000);
+            }
+
+            // 初始化：加载历史弹幕并随机发射
+            async function init() {
+                await checkAPI();
+                const barrages = await loadBarrages();
+                if (barrages.length === 0) {
+                    // 预置弹幕（仅首次访问时写入）
+                    const presets = [
+                        { text: '欢迎来到 SORA-HUB 🎮', color: '#F2A900' },
+                        { text: 'GTA V 永远的神！', color: '#FF2A6D' },
+                        { text: '有没有一起玩 FiveM 的？', color: '#00E5FF' },
+                        { text: 'OpenIV 太强了', color: '#76FF03' },
+                        { text: '洛圣都见！', color: '#E040FB' },
+                        { text: '求推荐好看的痛车涂装', color: '#FFFFFF' },
+                        { text: 'ScriptHookV 更新了吗', color: '#F2A900' },
+                    ];
+                    for (const p of presets) await saveBarrage(p.text, p.color);
+                    const fresh = await loadBarrages();
+                    fresh.forEach((b, i) => {
+                        setTimeout(() => fireBarrage(b.text, b.color), i * 800);
+                    });
+                } else {
+                    const sample = barrages.sort(() => Math.random() - 0.5).slice(0, 8);
+                    sample.forEach((b, i) => {
+                        setTimeout(() => fireBarrage(b.text, b.color), i * 600);
+                    });
+                }
+            }
+
+            // 定时补充弹幕，保持活跃感
+            setInterval(async () => {
+                if (activeCount < 5) {
+                    const barrages = await loadBarrages();
+                    if (barrages.length > 0) {
+                        const pick = barrages[Math.floor(Math.random() * barrages.length)];
+                        fireBarrage(pick.text, pick.color);
+                    }
+                }
+            }, 4000);
+
+            // 发送逻辑
+            async function send() {
+                const text = input.value.trim();
+                if (!text) return;
+                await saveBarrage(text, currentColor);
+                fireBarrage(text, currentColor);
+                input.value = '';
+            }
+
+            sendBtn.addEventListener('click', send);
+            input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+
+            // 颜色选择器
+            colorBtn.addEventListener('click', () => palette.classList.toggle('hidden'));
+            palette.querySelectorAll('.color-option').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    currentColor = btn.dataset.color;
+                    colorDot.style.background = currentColor;
+                    palette.classList.add('hidden');
+                });
+            });
+            document.addEventListener('click', e => {
+                if (!document.getElementById('colorPickerWrap').contains(e.target)) {
+                    palette.classList.add('hidden');
+                }
+            });
+
+            init();
+        })();
     </script>
 </body>
 </html>
