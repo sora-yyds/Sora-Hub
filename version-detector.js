@@ -1,65 +1,37 @@
 /**
- * SORA-HUB 智能版本检测系统
+ * SORA-HUB 智能版本检测
  * 自动从官网获取最新版本并构建下载链接
  */
 
+// ==================== 下载代理配置 ====================
+const DOWNLOAD_CONFIG = {
+    cfWorkerUrl: 'https://sorahub-download.s-o-r-a.eu.org/'
+};
+
 // ==================== 日志控制 ====================
-// 调试模式开关（生产环境应设为false）
 const DEBUG_MODE = false;
-
-// 安全的日志函数
-const log = (...args) => {
-    if (DEBUG_MODE) {
-        console.log(...args);
-    }
-};
-
-const warn = (...args) => {
-    if (DEBUG_MODE) {
-        console.warn(...args);
-    }
-};
-
-const error = (...args) => {
-    if (DEBUG_MODE) {
-        console.error(...args);
-    }
-};
-
-const info = (...args) => {
-    if (DEBUG_MODE) {
-        console.info(...args);
-    }
-};
+const log = (...args) => { if (DEBUG_MODE) console.log(...args); };
+const warn = (...args) => { if (DEBUG_MODE) console.warn(...args); };
+const error = (...args) => { if (DEBUG_MODE) console.error(...args); };
 
 // ==================== ScriptHookV 配置 ====================
 const SCRIPT_HOOK_V_CONFIG = {
     officialPage: 'http://www.dev-c.com/gtav/scripthookv/',
     downloadTemplate: 'http://www.dev-c.com/files/ScriptHookV_{legacy}_{enhanced}.zip',
     versionPattern: /v?(\d+\.\d+)\s*\/\s*(\d+\.\d+)/i,
-    // 默认版本号（用于降级）
-    defaultVersion: {
-        legacy: '3788.0',
-        enhanced: '1013.34'
-    }
+    defaultVersion: { legacy: '3788.0', enhanced: '1013.34' }
 };
 
 // ==================== ScriptHookVDotNet 配置 ====================
 const SCRIPT_HOOK_V_DOTNET_CONFIG = {
-    // GitHub API 端点（获取最新 nightly release）
     githubApi: 'https://api.github.com/repos/scripthookvdotnet/scripthookvdotnet-nightly/releases/latest',
-    // GitHub Releases 页面
     releasesPage: 'https://github.com/scripthookvdotnet/scripthookvdotnet-nightly/releases',
-    // 镜像下载前缀
     mirrorPrefix: 'https://raw.s-o-r-a.eu.org/',
-    // 默认版本号
     defaultVersion: '3.12.0'
 };
 
 // ==================== Rockstar 服务状态配置 ====================
 const ROCKSTAR_SERVICE_STATUS_CONFIG = {
-    statusPage: 'https://support.rockstargames.com/servicestatus',
-    // 游戏服务列表
     games: [
         { name: 'GTA Online', key: 'gta-online', icon: 'fa-car' },
         { name: 'Online Services', key: 'online-services', icon: 'fa-server' },
@@ -67,110 +39,102 @@ const ROCKSTAR_SERVICE_STATUS_CONFIG = {
     ]
 };
 
-// ==================== 工具配置映射 ====================
-const TOOL_CONFIGS = {
-    ScriptHookV: SCRIPT_HOOK_V_CONFIG,
-    ScriptHookVDotNet: SCRIPT_HOOK_V_DOTNET_CONFIG
-};
-
 /**
- * 三层获取策略：直连 → CORS 代理 → 抛出异常
- * @param {string} url - 目标 URL
- * @param {object} options - fetch 选项
- * @returns {Promise<string>} 响应文本
+ * 通过服务端代理获取版本信息（带数据库缓存 + 频率限制）
  */
-async function fetchWithStrategy(url, options = {}) {
-    const defaultHeaders = {
-        'Accept': 'text/html,application/xhtml+xml,application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    };
-    const mergedHeaders = { ...defaultHeaders, ...options.headers };
-
-    // 第一层：直连目标网站（CORS 兼容站点如 GitHub API 可以成功）
+async function fetchViaProxy(tool) {
     try {
-        log(`[SORA-HUB] 🔄 直连: ${url}`);
-        const response = await fetch(url, { method: 'GET', headers: mergedHeaders, signal: AbortSignal.timeout(3000) });
-        if (response.ok) {
-            const text = await response.text();
-            log('[SORA-HUB] ✅ 直连成功');
-            return text;
+        const proxyUrl = `./api/version-proxy.php?tool=${encodeURIComponent(tool)}`;
+        log(`[SORA-HUB] 🔄 服务端代理: ${proxyUrl}`);
+        const response = await fetch(proxyUrl, {
+            method: 'GET',
+            signal: AbortSignal.timeout(10000)
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        if (data.ok) {
+            log(`[SORA-HUB] ✅ 服务端代理成功`);
+            return data;
         }
-        warn(`[SORA-HUB] ⚠️ 直连返回 ${response.status}，尝试代理`);
+        warn('[SORA-HUB] ⚠️ 代理返回失败:', data.error);
+        return null;
     } catch (e) {
-        warn(`[SORA-HUB] ⚠️ 直连失败: ${e.message}，尝试代理`);
+        warn('[SORA-HUB] ⚠️ 服务端代理失败:', e.message);
+        return null;
     }
-
-    // 第二层：CORS 代理（每次请求独立计时）
-    const proxies = [
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        `https://corsproxy.io/?${encodeURIComponent(url)}`,
-        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
-    ];
-
-    for (const proxyUrl of proxies) {
-        try {
-            log(`[SORA-HUB] 🔄 代理: ${proxyUrl.split('?')[0]}`);
-            const response = await fetch(proxyUrl, { method: 'GET', headers: mergedHeaders, signal: AbortSignal.timeout(3000) });
-            if (response.ok) {
-                const text = await response.text();
-                log('[SORA-HUB] ✅ 代理请求成功');
-                return text;
-            }
-        } catch (e) {
-            warn(`[SORA-HUB] ⚠️ 代理失败:`, e.message);
-        }
-    }
-
-    throw new Error('直连与所有代理均失败');
 }
 
 /**
  * 从官网页面提取最新版本号
  */
 async function fetchScriptHookVVersion() {
-    try {
-        log('[SORA-HUB] 📡 正在获取 ScriptHookV 最新版本...');
-        
-        const html = await fetchWithStrategy(SCRIPT_HOOK_V_CONFIG.officialPage);
-        const match = html.match(SCRIPT_HOOK_V_CONFIG.versionPattern);
-        
-        if (match) {
-            const legacyVersion = match[1];
-            const enhancedVersion = match[2];
-            
-            log('[SORA-HUB] ✅ 成功获取版本信息:', {
-                legacy: legacyVersion,
-                enhanced: enhancedVersion
-            });
-            
-            return {
-                legacy: legacyVersion,
-                enhanced: enhancedVersion,
-                fullVersion: `v${legacyVersion} / ${enhancedVersion}`,
-                source: 'online'
-            };
-        } else {
-            throw new Error('无法解析版本号');
-        }
-    } catch (e) {
-        warn('[SORA-HUB] ❌ 在线获取版本失败:', e.message);
-        log('[SORA-HUB] 💡 使用默认版本作为降级方案');
-        
+    log('[SORA-HUB] 📡 正在获取 ScriptHookV 最新版本...');
+    const proxyData = await fetchViaProxy('scripthookv');
+    if (proxyData) {
         return {
-            ...SCRIPT_HOOK_V_CONFIG.defaultVersion,
-            fullVersion: `v${SCRIPT_HOOK_V_CONFIG.defaultVersion.legacy} / ${SCRIPT_HOOK_V_CONFIG.defaultVersion.enhanced}`,
-            source: 'default'
+            legacy: proxyData.legacy,
+            enhanced: proxyData.enhanced,
+            fullVersion: proxyData.full || `v${proxyData.legacy} / ${proxyData.enhanced}`,
+            source: proxyData.source || 'online',
+            cached: proxyData.cached || false,
+            stale: proxyData.stale || false
         };
     }
+    warn('[SORA-HUB] ❌ 获取版本失败，使用默认版本');
+    return {
+        ...SCRIPT_HOOK_V_CONFIG.defaultVersion,
+        fullVersion: `v${SCRIPT_HOOK_V_CONFIG.defaultVersion.legacy} / ${SCRIPT_HOOK_V_CONFIG.defaultVersion.enhanced}`,
+        source: 'default',
+        cached: false,
+        stale: false
+    };
 }
 
 /**
- * 构建下载链接
+ * 构建原始下载链接
  */
 function buildDownloadLink(versionInfo) {
     return SCRIPT_HOOK_V_CONFIG.downloadTemplate
         .replace('{legacy}', versionInfo.legacy)
         .replace('{enhanced}', versionInfo.enhanced);
+}
+
+/**
+ * 构建 CF Workers 代理下载 URL
+ */
+function buildProxyUrl(originalUrl) {
+    if (!DOWNLOAD_CONFIG.cfWorkerUrl) return null;
+    return `${DOWNLOAD_CONFIG.cfWorkerUrl}?u=${encodeURIComponent(btoa(originalUrl))}`;
+}
+
+/**
+ * 通过 CF Workers 下载文件（fetch 发送 Origin 头，Worker 可校验来源域名）
+ */
+async function downloadViaProxy(url) {
+    if (!DOWNLOAD_CONFIG.cfWorkerUrl) return;
+    const proxyUrl = buildProxyUrl(url);
+    const btn = document.querySelector('[data-tool="ScriptHookV"] .official-link');
+    try {
+        if (btn) btn.style.pointerEvents = 'none';
+        const response = await fetch(proxyUrl, { signal: AbortSignal.timeout(30000) });
+        const ct = response.headers.get('Content-Type') || '';
+        if (!response.ok || ct.includes('application/json')) {
+            const err = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+            throw new Error(err.error || '下载失败');
+        }
+        const blob = await response.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = url.split('/').pop() || 'download.zip';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+    } catch (e) {
+        alert('官网下载失败，请使用 Gitee 镜像下载');
+    } finally {
+        if (btn) btn.style.pointerEvents = '';
+    }
 }
 
 /**
@@ -198,29 +162,35 @@ function updateScriptHookVCard(versionInfo) {
 
     // 优化显示：合并版本信息为一行
     if (versionDisplay) {
+        let statusTag = '';
+        if (versionInfo.source === 'default') {
+            statusTag = '<span class="text-yellow-500 ml-2 text-xs">● 默认版本，可能不是最新</span>';
+        } else if (versionInfo.stale) {
+            statusTag = '<span class="text-yellow-500 ml-2 text-xs">● 缓存数据，稍后自动更新</span>';
+        } else if (versionInfo.cached) {
+            statusTag = '<span class="text-green-500 ml-2 text-xs">● 最新</span>';
+        } else {
+            statusTag = '<span class="text-green-500 ml-2 text-xs">● 最新</span>';
+        }
         versionDisplay.innerHTML = `
             <span class="text-xs text-gray-500">传承版:</span> 
             <span class="text-white font-bold">${versionInfo.legacy}</span>
             <span class="text-gray-600 mx-2">|</span>
             <span class="text-xs text-gray-500">增强版:</span> 
             <span class="text-white font-bold">${versionInfo.enhanced}</span>
-            ${versionInfo.source === 'online' 
-                ? '<span class="text-green-500 ml-2 text-xs">● 最新</span>'
-                : '<span class="text-yellow-500 ml-2 text-xs">● 缓存</span>'
-            }
+            ${statusTag}
         `;
     }
 
-    // 构建并更新下载链接
+    // 设置下载链接（fetch 方式，Worker 可校验 Origin）
     if (officialLink) {
         const downloadUrl = buildDownloadLink(versionInfo);
-        officialLink.href = downloadUrl;
-        
-        log('[SORA-HUB]  下载链接已构建:', downloadUrl);
-        
-        if (btnText) {
-            btnText.textContent = `官网下载`;
-        }
+        officialLink.href = 'javascript:void(0)';
+        officialLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            downloadViaProxy(downloadUrl);
+        });
+        if (btnText) btnText.textContent = '官网下载';
     }
 
     log(`[SORA-HUB] ✨ ScriptHookV 卡片更新完成 (来源: ${versionInfo.source})`);
@@ -230,41 +200,25 @@ function updateScriptHookVCard(versionInfo) {
  * 从 GitHub API 获取 ScriptHookVDotNet 最新版本
  */
 async function fetchScriptHookVDotNetVersion() {
-    try {
-        log('[SORA-HUB] 📡 正在从 GitHub 获取 ScriptHookVDotNet 最新版本...');
-        
-        const text = await fetchWithStrategy(SCRIPT_HOOK_V_DOTNET_CONFIG.githubApi, {
-            headers: { 'Accept': 'application/vnd.github.v3+json' }
-        });
-        const data = JSON.parse(text);
-        
-        // 提取版本号和下载链接
-        const version = data.tag_name || data.name;
-        const downloadUrl = data.assets && data.assets.length > 0 
-            ? data.assets[0].browser_download_url 
-            : SCRIPT_HOOK_V_DOTNET_CONFIG.releasesPage;
-        
-        log('[SORA-HUB] ✅ 成功获取版本信息:', {
-            version: version,
-            downloadUrl: downloadUrl
-        });
-
+    log('[SORA-HUB] 📡 正在获取 ScriptHookVDotNet 最新版本...');
+    const proxyData = await fetchViaProxy('scripthookvdotnet');
+    if (proxyData) {
         return {
-            version: version,
-            downloadUrl: downloadUrl,
-            releaseNotes: data.body ? data.body.substring(0, 100) + '...' : '',
-            source: 'online'
-        };
-    } catch (e) {
-        warn('[SORA-HUB] ❌ 获取 ScriptHookVDotNet 版本失败:', e.message);
-        log('[SORA-HUB] 💡 使用默认版本作为降级方案');
-        
-        return {
-            version: SCRIPT_HOOK_V_DOTNET_CONFIG.defaultVersion,
-            downloadUrl: SCRIPT_HOOK_V_DOTNET_CONFIG.releasesPage,
-            source: 'default'
+            version: proxyData.version,
+            downloadUrl: proxyData.downloadUrl || SCRIPT_HOOK_V_DOTNET_CONFIG.releasesPage,
+            source: proxyData.source || 'online',
+            cached: proxyData.cached || false,
+            stale: proxyData.stale || false
         };
     }
+    warn('[SORA-HUB] ❌ 获取 ScriptHookVDotNet 版本失败，使用默认版本');
+    return {
+        version: SCRIPT_HOOK_V_DOTNET_CONFIG.defaultVersion,
+        downloadUrl: SCRIPT_HOOK_V_DOTNET_CONFIG.releasesPage,
+        source: 'default',
+        cached: false,
+        stale: false
+    };
 }
 
 /**
@@ -292,13 +246,20 @@ function updateScriptHookVDotNetCard(versionInfo) {
 
     // 显示版本信息
     if (versionDisplay) {
+        let statusTag = '';
+        if (versionInfo.source === 'default') {
+            statusTag = '<span class="text-yellow-500 ml-2 text-xs">● 默认版本，可能不是最新</span>';
+        } else if (versionInfo.stale) {
+            statusTag = '<span class="text-yellow-500 ml-2 text-xs">● 缓存数据，稍后自动更新</span>';
+        } else if (versionInfo.cached) {
+            statusTag = '<span class="text-green-500 ml-2 text-xs">● 最新</span>';
+        } else {
+            statusTag = '<span class="text-green-500 ml-2 text-xs">● 最新</span>';
+        }
         versionDisplay.innerHTML = `
             <span class="text-xs text-gray-500">最新版本:</span> 
             <span class="text-white font-bold">${versionInfo.version}</span>
-            ${versionInfo.source === 'online' 
-                ? '<span class="text-green-500 ml-2 text-xs">● 最新</span>'
-                : '<span class="text-yellow-500 ml-2 text-xs">● 缓存</span>'
-            }
+            ${statusTag}
         `;
     }
 
@@ -344,85 +305,15 @@ async function initializeVersionDetection() {
 }
 
 /**
- * 获取 Rockstar 服务状态（通过网页数据抓取）
+ * 获取 Rockstar 服务状态（使用默认值，官网不支持 CORS）
  */
 async function fetchRockstarServiceStatus() {
-    try {
-        log('[SORA-HUB] 📡 正在通过网页抓取获取 Rockstar 服务状态...');
-        
-        // 获取官方页面
-        const html = await fetchWithStrategy(ROCKSTAR_SERVICE_STATUS_CONFIG.statusPage);
-        
-        // 解析服务状态
-        const services = parseRockstarStatusPage(html);
-        
-        log('[SORA-HUB] ✅ 成功获取服务状态:', services);
-        return services;
-    } catch (e) {
-        warn('[SORA-HUB] ❌ 获取 Rockstar 服务状态失败:', e.message);
-        log('[SORA-HUB] 💡 使用默认状态作为降级方案');
-        
-        // 返回默认状态（未知/检查中）
-        return ROCKSTAR_SERVICE_STATUS_CONFIG.games.map(game => ({
-            name: game.name,
-            status: 'unknown',
-            statusText: '状态检查中...',
-            icon: game.icon
-        }));
-    }
-}
-
-/**
- * 解析 Rockstar 状态页面 HTML
- */
-function parseRockstarStatusPage(html) {
-    const services = [];
-    
-    // 尝试从 HTML 中提取服务状态
-    // 注意：这个正则表达式需要根据实际页面结构调整
-    const servicePattern = /<div[^>]*class="[^"]*service[^"]*"[^>]*>.*?<span[^>]*class="[^"]*status[^"]*"[^>]*>(.*?)<\/span>/gi;
-    
-    let match;
-    while ((match = servicePattern.exec(html)) !== null) {
-        const statusText = match[1].trim();
-        services.push({
-            name: 'GTA Online',
-            status: determineStatus(statusText),
-            statusText: statusText,
-            icon: 'fa-car'
-        });
-    }
-    
-    // 如果没有解析到数据，返回默认结构
-    if (services.length === 0) {
-        return ROCKSTAR_SERVICE_STATUS_CONFIG.games.map(game => ({
-            name: game.name,
-            status: 'operational',
-            statusText: '正常运行',
-            icon: game.icon
-        }));
-    }
-    
-    return services;
-}
-
-/**
- * 根据状态文本确定状态类型
- */
-function determineStatus(statusText) {
-    const text = statusText.toLowerCase();
-    
-    if (text.includes('online') || text.includes('operational') || text.includes('正常')) {
-        return 'operational';
-    } else if (text.includes('maintenance') || text.includes('维护')) {
-        return 'maintenance';
-    } else if (text.includes('offline') || text.includes('down') || text.includes('故障')) {
-        return 'down';
-    } else if (text.includes('degraded') || text.includes('部分')) {
-        return 'degraded';
-    }
-    
-    return 'unknown';
+    return ROCKSTAR_SERVICE_STATUS_CONFIG.games.map(game => ({
+        name: game.name,
+        status: 'operational',
+        statusText: '正常运行',
+        icon: game.icon
+    }));
 }
 
 /**
