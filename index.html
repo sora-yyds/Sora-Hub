@@ -898,27 +898,19 @@
                 }, 15000);
             }
 
-            // 初始化：加载历史弹幕并随机发射
+            // 初始化：通过后端接口初始化预设弹幕（仅首次），然后加载展示
             async function init() {
                 await checkAPI();
+
+                // 通过后端接口初始化预设弹幕（仅首次执行，由 _meta 表保证幂等）
+                if (useAPI) {
+                    try {
+                        await fetch(API_URL + '?action=init', { signal: AbortSignal.timeout(5000) });
+                    } catch {}
+                }
+
                 const barrages = await loadBarrages();
-                if (barrages.length === 0) {
-                    // 预置弹幕（仅首次访问时写入）
-                    const presets = [
-                        { text: '欢迎来到 SORA-HUB 🎮', color: '#F2A900' },
-                        { text: 'GTA V 永远的神！', color: '#FF2A6D' },
-                        { text: '有没有一起玩 FiveM 的？', color: '#00E5FF' },
-                        { text: 'OpenIV 太强了', color: '#76FF03' },
-                        { text: '洛圣都见！', color: '#E040FB' },
-                        { text: '求推荐好看的痛车涂装', color: '#FFFFFF' },
-                        { text: 'ScriptHookV 更新了吗', color: '#F2A900' },
-                    ];
-                    for (const p of presets) await saveBarrage(p.text, p.color);
-                    const fresh = await loadBarrages();
-                    fresh.forEach((b, i) => {
-                        setTimeout(() => fireBarrage(b.text, b.color), i * 800);
-                    });
-                } else {
+                if (barrages.length > 0) {
                     const sample = barrages.sort(() => Math.random() - 0.5).slice(0, 8);
                     sample.forEach((b, i) => {
                         setTimeout(() => fireBarrage(b.text, b.color), i * 600);

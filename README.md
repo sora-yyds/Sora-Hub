@@ -16,9 +16,9 @@
 
 ## 功能特性
 
-- **智能版本检测** — 自动抓取 ScriptHookV / ScriptHookVDotNet 最新版本，MySQL 缓存 + 频率限制
+- **智能版本检测** — 自动抓取 ScriptHookV / ScriptHookVDotNet 最新版本，MySQL 缓存 + 频率限制，表删除后自动重建
 - **代理下载** — 通过 Cloudflare Workers 代理下载，绕过防盗链
-- **弹幕墙** — 实时弹幕互动，PHP + MySQL 后端存储，无后端时自动降级 localStorage
+- **弹幕墙** — 实时弹幕互动，PHP + MySQL 后端存储，预设弹幕通过后端幂等初始化（防重复写入），无后端时自动降级 localStorage
 - **Rockstar 服务状态** — 展示 GTA Online 等服务运行状态
 - **角色立绘轮播** — Crossfade 过渡动画，悬停暂停
 - **响应式布局** — Tailwind CSS 驱动，桌面 / 平板 / 手机全适配
@@ -56,7 +56,7 @@ python -m http.server 3000
 cp api/config_example.php api/config.php
 # 编辑 config.php 填入 MySQL 连接信息
 
-# 3. 首次访问弹幕 API 时自动建库建表，无需手动建表
+# 3. 首次访问时自动建库建表（barrage、_meta、version_cache），无需手动建表
 ```
 
 ### Cloudflare Workers（下载代理）
@@ -76,11 +76,13 @@ SoraHub/
 ├── version-detector.js     # 版本检测 + 下载代理
 ├── cf-download-worker.js   # Cloudflare Worker 下载代理脚本
 ├── api/
-│   ├── barrage.php         # 弹幕 API
-│   ├── version-proxy.php   # 版本检测代理（MySQL 缓存）
+│   ├── barrage.php         # 弹幕 API（含预设弹幕幂等初始化）
+│   ├── version-proxy.php   # 版本检测代理（MySQL 缓存 + 防御性表重建）
 │   ├── config.php          # 数据库配置（.gitignore 排除）
 │   └── config_example.php  # 配置模板
 ├── assets/                 # Logo / Favicon
+├── docs/                   # 项目文档
+│   └── cdn-setup-upyun.md  # 又拍云 CDN 配置指南
 ├── img/                    # 角色立绘
 ├── fonts/                  # 本地字体
 └── lib/                    # 第三方库

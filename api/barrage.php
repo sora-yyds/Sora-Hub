@@ -47,6 +47,12 @@ try {
         INDEX idx_time (`time`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+    // 元数据表（用于记录初始化状态等标志位）
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `_meta` (
+        `key`   VARCHAR(50) NOT NULL PRIMARY KEY,
+        `value` VARCHAR(255) NOT NULL DEFAULT ''
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
 } catch (PDOException $e) {
     http_response_code(500);
     echo json_encode(['error' => '数据库连接失败', 'detail' => $e->getMessage()]);
@@ -54,6 +60,53 @@ try {
 }
 
 // ========== 请求处理 ==========
+
+// 初始化预设弹幕（仅首次执行，通过 _meta 表防重复）
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'init') {
+    $stmt = $pdo->query("SELECT `value` FROM `_meta` WHERE `key` = 'barrage_initialized'");
+    $already = $stmt->fetch();
+    if ($already && $already['value'] === '1') {
+        echo '{"ok":true,"initialized":true}';
+        exit;
+    }
+
+    // 兼容旧部署：如果弹幕表已有数据，直接标记为已初始化，不再插入预设
+    $countStmt = $pdo->query("SELECT COUNT(*) AS cnt FROM `barrage`");
+    $count = (int)$countStmt->fetch()['cnt'];
+    if ($count > 0) {
+        $pdo->exec("INSERT INTO `_meta` (`key`, `value`) VALUES ('barrage_initialized', '1')
+            ON DUPLICATE KEY UPDATE `value` = '1'");
+        echo '{"ok":true,"initialized":true}';
+        exit;
+    }
+
+    $presets = [
+        ['欢迎来到 SORA-HUB 🎮', '#F2A900'],
+        ['GTA V 永远的神！', '#FF2A6D'],
+        ['有没有一起玩 FiveM 的？', '#00E5FF'],
+        ['OpenIV 太强了', '#76FF03'],
+        ['洛圣都见！', '#E040FB'],
+        ['求推荐好看的痛车涂装', '#FFFFFF'],
+        ['ScriptHookV 更新了吗', '#F2A900'],
+    ];
+
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare("INSERT INTO `barrage` (`text`, `color`, `time`) VALUES (?, ?, ?)");
+        $now = time();
+        foreach ($presets as $p) {
+            $stmt->execute([$p[0], $p[1], $now]);
+        }
+        $pdo->exec("INSERT INTO `_meta` (`key`, `value`) VALUES ('barrage_initialized', '1')
+            ON DUPLICATE KEY UPDATE `value` = '1'");
+        $pdo->commit();
+        echo '{"ok":true,"initialized":false}';
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $max  = min((int)($_GET['max'] ?? 100), 500);

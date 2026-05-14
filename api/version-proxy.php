@@ -4,8 +4,6 @@
  *
  * GET /api/version-proxy.php?tool=scripthookv
  * GET /api/version-proxy.php?tool=scripthookvdotnet
- * GET /api/version-proxy.php?action=check_php_curl   ← 检查 PHP cURL 环境
- *
  * 返回 JSON: { ok, source, cached, stale, ... }
  *
  * 缓存策略：默认 1 小时内使用数据库缓存，超过后重新抓取
@@ -28,21 +26,7 @@ define('CACHE_TTL',        7200);   // 缓存有效期：2 小时（秒），内
 define('FETCH_COOLDOWN',   9000);   // 抓取冷却：2.5 小时（秒），内不重复请求外部网站
 
 // ==================== 路由 ====================
-$action = $_GET['action'] ?? '';
-$tool   = strtolower($_GET['tool'] ?? '');
-
-// 特殊动作：检查 PHP cURL 环境
-if ($action === 'check_php_curl') {
-    echo json_encode([
-        'ok'        => true,
-        'php'       => phpversion(),
-        'curl'      => function_exists('curl_init'),
-        'curl_ver'  => function_exists('curl_version') ? curl_version()['version'] : null,
-        'openssl'   => extension_loaded('openssl'),
-        'json'      => extension_loaded('json')
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
-}
+$tool = strtolower($_GET['tool'] ?? '');
 
 if (!in_array($tool, ['scripthookv', 'scripthookvdotnet'], true)) {
     http_response_code(400);
@@ -51,6 +35,7 @@ if (!in_array($tool, ['scripthookv', 'scripthookvdotnet'], true)) {
 }
 
 // ==================== 数据库初始化 ====================
+$pdo = null;
 try {
     $config = require __DIR__ . '/config.php';
     $pdo = new PDO(
@@ -60,16 +45,25 @@ try {
     );
     $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$config['name']}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
     $pdo->exec("USE `{$config['name']}`");
-    $pdo->exec("CREATE TABLE IF NOT EXISTS `version_cache` (
-        `tool`        VARCHAR(50)  NOT NULL PRIMARY KEY,
-        `data`        TEXT         NOT NULL,
-        `fetched_at`  INT UNSIGNED NOT NULL,
-        `source`      VARCHAR(20)  NOT NULL DEFAULT 'online',
-        INDEX idx_fetched (`fetched_at`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 } catch (PDOException $e) {
-    // 数据库不可用时降级为无缓存模式
+    // 数据库连接失败，降级为无缓存模式
+    error_log('[version-proxy] 数据库连接失败: ' . $e->getMessage());
     $pdo = null;
+}
+
+// 连接成功后，单独处理建表（避免建表失败导致 $pdo 被丢弃）
+if ($pdo) {
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `version_cache` (
+            `tool`        VARCHAR(50)  NOT NULL PRIMARY KEY,
+            `data`        TEXT         NOT NULL,
+            `fetched_at`  INT UNSIGNED NOT NULL,
+            `source`      VARCHAR(20)  NOT NULL DEFAULT 'online',
+            INDEX idx_fetched (`fetched_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    } catch (PDOException $e) {
+        error_log('[version-proxy] version_cache 建表失败: ' . $e->getMessage());
+    }
 }
 
 // ==================== 核心逻辑 ====================
@@ -137,7 +131,20 @@ function readCache($pdo, $tool)
         $stmt = $pdo->prepare("SELECT * FROM `version_cache` WHERE `tool` = ?");
         $stmt->execute([$tool]);
         return $stmt->fetch() ?: null;
-    } catch (Exception $e) {
+    } catch (PDOException $e) {
+        // 表可能被手动删除，尝试重建
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `version_cache` (
+                `tool`        VARCHAR(50)  NOT NULL PRIMARY KEY,
+                `data`        TEXT         NOT NULL,
+                `fetched_at`  INT UNSIGNED NOT NULL,
+                `source`      VARCHAR(20)  NOT NULL DEFAULT 'online',
+                INDEX idx_fetched (`fetched_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+            error_log('[version-proxy] version_cache 表已重建');
+        } catch (PDOException $e2) {
+            error_log('[version-proxy] version_cache 表重建失败: ' . $e2->getMessage());
+        }
         return null;
     }
 }
@@ -160,8 +167,8 @@ function writeCache($pdo, $tool, $data)
             time(),
             $data['source'] ?? 'online'
         ]);
-    } catch (Exception $e) {
-        // 写缓存失败不影响返回
+    } catch (PDOException $e) {
+        error_log('[version-proxy] 写入缓存失败 (' . $tool . '): ' . $e->getMessage());
     }
 }
 
